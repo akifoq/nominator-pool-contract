@@ -1,0 +1,33 @@
+slice elector_address()
+  asm "<b -1 0x3333333333333333333333333333333333333333333333333333333333333333 Addr, b> <s PUSHSLICE";
+
+() recv_internal(cell in_msg_cell, slice in_msg) impure {
+  var cs = in_msg_cell.begin_parse();
+  var flags = cs~load_uint(4);
+  var s_addr = cs~load_msg_addr();
+
+  var ds = get_data().begin_parse();
+  slice pool_addr = ds~load_msg_addr();
+  slice addr = null();
+  if slice_data_equal?(s_addr, elector_address()) {
+    addr = pool_addr;
+  }
+  if slice_data_equal?(s_addr, pool_addr) {
+    addr = elector_address();
+  }
+  var msg = begin_cell()
+    .store_uint(0x18, 6)
+    .store_slice(addr)
+    .store_grams(0)
+    .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_ref(begin_cell()
+      .store_slice(in_msg)
+    .end_cell());
+  raw_reserve(0, 4);
+  return send_raw_message(msg.end_cell(), 128);
+}
+
+(int, int) get_pool_addr() method_id {
+  var ds = get_data().begin_parse();
+  return parse_std_addr(ds);
+}

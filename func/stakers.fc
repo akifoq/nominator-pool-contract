@@ -1,0 +1,159 @@
+slice check_addr(slice addr) impure inline_ref {
+  int tag = addr.preload_uint(3);
+  throw_if(45, tag != 4); ;; addr_std$10 Nothing$0
+  return addr;
+}
+
+int get_grams(pending, id) inline_ref {
+  (slice cs, int found?) = pending.dict_get?(267, id);
+  int grams = 0;
+  if (found?) {
+    grams = cs~load_grams();
+  }
+  return grams;
+}
+
+_ ~delete_get_grams(pending, id) inline_ref {
+  (slice cs, int found?) = pending~dict_delete_get?(267, id);
+  int grams = 0;
+  if (found?) {
+    grams = cs~load_grams();
+  }
+  return (pending, grams);
+}
+
+_ ~set_grams(pending, id, grams) inline_ref {
+  if (grams > 0) {
+    pending~dict_set_builder(267, id, begin_cell().store_grams(grams));
+  }
+  return (pending, ());
+}
+
+
+int get_shares(stakes, id) inline_ref {
+  (slice cs, int found?) = stakes.dict_get?(267, id);
+  int shares = 0;
+  if (found?) {
+    shares = cs~load_shares();
+  }
+  return shares;
+}
+
+(cell, int) ~delete_get_shares(stakes, id) inline_ref {
+  (slice cs, int found?) = stakes~dict_delete_get?(267, id);
+  int shares = 0;
+  if (found?) {
+    shares = cs~load_shares();
+  }
+  return (stakes, shares);
+}
+
+_ ~set_shares(stakes, id, shares) inline_ref {
+  if (shares > 0) {
+    stakes~dict_set_builder(267, id, begin_cell().store_shares(shares));
+  }
+  return (stakes, ());
+}
+
+_ ~add_deposit(stakes_info, id, amount) inline_ref {
+  var (stakes, total_shares, total_staked) = stakes_info;
+
+  int shares = stakes.get_shares(id);
+  int new_shares = (amount << 8); ;; 1 share = 1/256 coin by default
+  if (total_shares > 0) {
+    ;; recalculate
+    new_shares = muldiv(amount, total_shares, total_staked);
+  }
+  stakes~set_shares(id, shares + new_shares);
+  total_shares += new_shares;
+  total_staked += amount;
+
+  return ((stakes, total_shares, total_staked), ());
+}
+
+int request_deposit(slice id, int amount) impure inline_ref {
+  var (_1, state, _3, balances, pendings) = load_data();
+  var (stakes, total_shares, total_staked, _d, _e) = unpack_balances(balances);
+  var [tag, _, _, _] = state;
+  var [pending_deposits, _pw] = pendings;
+  int pending = pending_deposits~delete_get_grams(id);
+  amount += pending;
+  ;; allow collecting own deposit by setting amount = 0
+  throw_if(47, amount < settings::min_deposit());
+  int fee = 0;
+  if (tag == state_tag::in_limbo()) {
+    ;; deposit immediately
+    (stakes, total_shares, total_staked)~add_deposit(id, amount);
+    balances = pack_balances(stakes, total_shares, total_staked, _d, _e);
+  }
+  else {
+    ;; postpone deposit
+    pending_deposits~set_grams(id, amount);
+    if (pending == 0) {
+      ;; new entry
+      fee = settings::deposit_fee();
+    }
+  }
+  pendings = [pending_deposits, _pw];
+
+  save_data(_1, state, _3, balances, pendings);
+  return fee;
+}
+
+_ withdraw(stakes_info, slice id, int amount) inline_ref {
+  var (stakes, total_shares, total_staked) = stakes_info;
+  int shares = stakes~delete_get_shares(id);
+  amount = min(amount, shares);
+  if (amount < shares) {
+    ;; the price of single share doesn't change after withdrawal
+    if (muldiv(shares - amount, total_staked, total_shares) < settings::min_deposit()) {
+      amount = shares;
+    }
+  }
+  int coins = muldiv(amount, total_staked, total_shares);
+  stakes~set_shares(id, shares - amount);
+  total_shares -= amount;
+  total_staked -= coins;
+
+  stakes_info = (stakes, total_shares, total_staked);
+  return (stakes_info, coins);
+}
+
+int request_withdraw(slice id, int amount) impure inline_ref {
+  var (_1, state, _3, balances, pendings) = load_data();
+  var (stakes, total_shares, total_staked, _d, _e) = unpack_balances(balances);
+  var [tag, _, _, _] = state;
+  var [_pd, pending_withdrawals] = pendings;
+  int pending = pending_withdrawals~delete_get_shares(id);
+  amount += pending;
+  int coins = 0;
+  if (tag == state_tag::in_limbo()) {
+    ;; withdraw immediately
+    coins = (stakes, total_shares, total_staked)~withdraw(id, amount);
+    balances = pack_balances(stakes, total_shares, total_staked, _d, _e);
+  }
+  else {
+    throw_unless(40, stakes.get_shares(id)); ;; staker must have stake to withdraw
+
+    ;; postpone withdrawal
+    pending_withdrawals~set_shares(id, amount);
+    if (pending == 0) {
+      ;; new entry
+      coins = - settings::withdrawal_fee();
+    }
+  }
+  pendings = [_pd, pending_withdrawals];
+
+  save_data(_1, state, _3, balances, pendings);
+  return coins;
+}
+
+int cancel_deposit(slice id) impure inline_ref {
+  var (_1, _2, _3, _4, pendings) = load_data();
+  ;; it's possible at any given state
+  var [pending_deposits, _pw] = pendings;
+  int coins = pending_deposits~delete_get_grams(id);
+  pendings = [pending_deposits, _pw];
+  save_data(_1, _2, _3, _4, pendings);
+  return coins;
+}

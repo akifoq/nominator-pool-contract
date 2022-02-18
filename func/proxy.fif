@@ -1,0 +1,6 @@
+"Asm+.fif" include
+
+<{ SETCP0 ACCEPT DROP
+   NEWC STSLICE ENDC c4 POP
+   "auto/proxy-code.fif" include PUSHREF SETCODE
+}>c

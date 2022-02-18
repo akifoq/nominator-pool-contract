@@ -1,0 +1,17 @@
+"TonUtil.fif" include
+"setup.fif" include
+
+{ ."fift -s new-proxy <nonce>" cr 1 halt } : usage
+$# 1 <> ' usage if
+
+"../func/proxy.fif" include constant code
+<b $1 parse-int 32 u, b> constant storage
+-1 constant wc
+
+"../data/pool.addr" dup file-exists?
+{ <b swap load-address Addr, b> <s =: body }
+{ drop } cond
+
+"../data/proxy" constant file-base
+
+"create-contract.fif" include

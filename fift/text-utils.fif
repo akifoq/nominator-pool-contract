@@ -1,0 +1,14 @@
+{ dup sbits 3 and dup
+  { 4 swap - <b rot s, 0 rot u, b> <s }
+  { drop } cond
+} : slice-adjust
+
+{ slice-adjust dup shash 30 B| nip B>x swap
+  dup sbits 4 /
+  "" {
+    swap 4 u@+ -rot (x.) $+
+  } rot times nip
+  $+
+} : s>$
+
+forget slice-adjust

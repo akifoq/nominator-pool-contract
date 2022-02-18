@@ -1,0 +1,24 @@
+int parse_sym(int x) inline {
+  int res = x - 48;
+  res += (x >= 97) * (87 - 48);
+  return res;
+}
+
+slice parse_hex_msg(slice in_msg) impure inline_ref {
+  int chk = 0;
+  repeat(4) {
+    chk = (chk << 4) | parse_sym(in_msg~load_uint(8));
+  }
+  builder res = begin_cell();
+  while (~ in_msg.slice_empty?()) {
+    if (in_msg.slice_data_empty?()) {
+      var c = in_msg~load_ref();
+      in_msg = c.begin_parse();
+    }
+    int d = parse_sym(in_msg~load_uint(8));
+    res = res.store_uint(d, 4);
+  }
+  cell c = res.end_cell();
+  throw_if(201, chk != (cell_hash(c) & 0xffff));
+  return c.begin_parse();
+}

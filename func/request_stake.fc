@@ -1,0 +1,20 @@
+int stake_surely_unfrozen?(utime_since) impure inline_ref {
+  var (validators_elected_for, _, _, stake_held_for) = elect_timings();
+  return now() > utime_since + validators_elected_for + stake_held_for + settings::unfreeze_delay();
+}
+
+_ ~request_stake_recover(balances) impure inline_ref {
+  var msg = begin_cell()
+    .store_uint(0x18, 6)
+    .store_slice(elector_address())
+    .store_grams(1 << 32) ;; send ~4 coins
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_uint(0x47657424, 32)
+    .store_uint(cur_lt(), 64);
+  send_raw_message(msg.end_cell(), 1);
+
+  var (_1, _2, _3, _4, total_sent) = unpack_balances(balances);
+  total_sent += (1 << 32);
+  balances = pack_balances(_1, _2, _3, _4, total_sent);
+  return (balances, ());
+}

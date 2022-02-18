@@ -1,0 +1,9 @@
+"TonUtil.fif" include
+"text-utils.fif" include
+
+{ ."fift -s new-deposit <grams>" cr 1 halt } : usage
+$# 1 <> ' usage if
+
+<b 0x15db9d39 32 u,
+   $1 $>GR Gram,
+b> <s s>$ type cr

@@ -1,0 +1,71 @@
+_ ~distribute_reward(balances, profit, validator_fee) inline_ref {
+  var (total_shares, total_staked, validator_balance) = balances;
+
+  int validator_part = muldiv(profit, validator_balance,
+                              validator_balance + total_staked);
+  profit -= validator_part;
+
+  int vfee = muldiv(profit, validator_fee, 1 << 16);
+  int stakers_profit = profit - vfee;
+  int validator_profit = validator_part + vfee;
+
+  validator_balance += validator_profit;
+  total_staked += stakers_profit;
+
+  return ((total_shares, total_staked, validator_balance), ());
+}
+
+_ ~distribute_loss(balances, loss) inline_ref {
+  var (stakes, total_shares, total_staked, validator_balance) = balances;
+  if (loss <= validator_balance) {
+    validator_balance -= loss;
+  }
+  else {
+    loss -= validator_balance;
+    validator_balance = 0;
+    total_staked -= loss;
+    if (total_staked < (1 << 30)) {
+      ;; prevent hyperinflation of shares
+      total_staked = 0;
+      total_shares = 0;
+      stakes = null();
+    }
+  }
+  balances = (stakes, total_shares, total_staked, validator_balance);
+  return (balances, ());
+}
+
+() process_stake_recover(int msg_value) impure inline_ref {
+  var (_1, state, settings, balances, _5) = load_data();
+  var (stakes, total_shares, total_staked,
+       validator_balance, total_sent) = unpack_balances(balances);
+
+  var [tag, utime_since, _, _] = state; ;; stake_requested or finally_requested
+
+  int profit = msg_value - total_sent;
+  if (profit >= 0) {
+    var [validator_fee, _] = settings;
+    (total_shares, total_staked, validator_balance)~distribute_reward(profit, validator_fee);
+    state = [state_tag::in_limbo(), null(), null(), null()];
+    total_sent = 0;
+  }
+  else {
+    int loss = - profit;
+    if (tag == state_tag::stake_requested()) & (loss > validator_balance) {
+      ;; usual request returned unusually small amount of coins
+      state = [state_tag::wait_for_unfreeze(), utime_since, null(), null()];
+      ;; remember returned coins
+      total_sent -= msg_value;
+    }
+    else {
+      ;; loss is not too big or it's the final loss
+      (stakes, total_shares, total_staked, validator_balance)~distribute_loss(loss);
+      state = [state_tag::in_limbo(), null(), null(), null()];
+      total_sent = 0;
+    }
+  }
+
+  balances = pack_balances(stakes, total_shares, total_staked,
+                           validator_balance, total_sent);
+  save_data(_1, state, settings, balances, _5);
+}

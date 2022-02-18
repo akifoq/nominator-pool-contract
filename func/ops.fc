@@ -1,0 +1,16 @@
+int op::partipate() asm "0x212cc419 PUSHINT";
+int op::change_settings() asm "0x4abfbc2b PUSHINT";
+int op::v_withdraw() asm "0x65ca93f9 PUSHINT";
+int op::recv_external() asm "0x47d761c5 PUSHINT";
+int op::change_controller() asm "0x180e4b4d PUSHINT";
+int op::begin_elections() asm "0x44088728 PUSHINT";
+int op::v_deposit() asm "0x61010ddc PUSHINT";
+int op::deposit() asm "0x15db9d39 PUSHINT";
+int op::withdraw() asm "0x35de5f9e PUSHINT";
+int op::request_stake() asm "0x33de6040 PUSHINT";
+int op::collect_deposits() asm "0x52d78a6c PUSHINT";
+int op::process_withdrawals() asm "0x13a0943e PUSHINT";
+int op::cancel_deposit() asm "0x731f8168 PUSHINT";
+
+int resp::ok() asm "0x800000ef PUSHINT";
+int resp::withdraw() asm "0x000000ef PUSHINT";

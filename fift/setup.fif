@@ -1,0 +1,5 @@
+32768 constant validator_fee // 50%
+1 Gram* constant min_val_balance
+10 Gram* constant validator_balance
+"Ef-7jpFgKLpJywKTcew5jzx72BjuuI8fCavCeKm_qn4OVOSH" parse-smc-addr drop 2constant controller
+0 constant pool-wc

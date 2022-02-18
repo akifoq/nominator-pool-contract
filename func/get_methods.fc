@@ -1,0 +1,141 @@
+(int, int, int, int) get_state() method_id {
+  var (_, state, _, _, _) = load_data();
+  var [tag, utime_since, msgs_sent, msgs_recv] = state;
+  return (tag, utime_since, msgs_sent, msgs_recv);
+}
+
+;; get-methods don't support configparams, so we have to use a work-around
+(int, int, int, int) get_state_after_update(int elections_end_before) method_id {
+  var (_, state, _, _, _) = load_data();
+
+  ;;;;;;;;;;;;;;; BASED ON ~UPDATE_STATE ;;;;;;;;;;;;;;;;
+  var [tag, utime_since, msgs_sent, msgs_recv] = state;
+  if (tag == state_tag::elections()) {
+    if (now() >= utime_since - elections_end_before) {
+      if (msgs_recv == msgs_sent) {
+        state = [state_tag::stake_held(), utime_since, null(), null()];
+      }
+    }
+  }
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+  var [tag, utime_since, msgs_sent, msgs_recv] = state;
+  return (tag, utime_since, msgs_sent, msgs_recv);
+}
+
+int can_begin_elections?(int utime_since, int elections_start_before,
+                         int elections_end_before) method_id {
+  var (_1, state, settings, balances, pendings) = load_data();
+
+  var (_, _, _, validator_balance, _) = unpack_balances(balances);
+  var [_, min_val_balance] = settings;
+  if (validator_balance < min_val_balance) {
+    return false;
+  }
+
+  var [tag, _, _, _] = state;
+  ifnot (tag == state_tag::in_limbo()) {
+    return false;
+  }
+
+  int lt = utime_since - elections_start_before;
+  int rt = utime_since - elections_end_before;
+  int t = now();
+  ifnot (lt <= t) & (t < rt) {
+    return false;
+  }
+
+  var [pending_deposits, pending_withdrawals] = pendings;
+  return pending_withdrawals.null?() & pending_deposits.null?();
+}
+
+(int, int) get_settings() method_id {
+  var (_, _, settings, _, _) = load_data();
+  var [validator_fee, min_val_balance] = settings;
+  return (validator_fee, min_val_balance);
+}
+
+_ get_constant_settings() method_id {
+  return (
+    settings::max_msgs_sent(),
+    settings::min_deposit(),
+    settings::deposit_margin(),
+    settings::withdrawal_fee(),
+    settings::deposit_fee(),
+    settings::unfreeze_delay()
+  );
+}
+
+(int, int) get_controller() method_id {
+  var ds = get_data().begin_parse();
+  var controller = ds~load_msg_addr();
+  return parse_std_addr(controller);
+}
+
+_ get_balances() method_id {
+  var (_, _, _, balances, _) = load_data();
+  var (_, total_shares, total_staked,
+       validator_balance, total_sent) = unpack_balances(balances);
+  return (total_shares, total_staked, validator_balance, total_sent);
+}
+
+(int, int) get_share_price() method_id {
+  var (_, _, _, balances, _) = load_data();
+  var (_, total_shares, total_staked, _, _) = unpack_balances(balances);
+  if (total_shares == 0) {
+    return (1, 256); ;; 1 share = 1/256 nanocoin initially
+  }
+  return (total_staked, total_shares); ;; total_staked / total_shares nanocoins per share
+}
+
+(int, int) get_user_shares(int wc, int addr) method_id {
+  slice id = begin_cell()
+    .store_uint(4, 3)
+    .store_int(wc, 8)
+    .store_uint(addr, 256)
+    .end_cell().begin_parse();
+
+  var (_, _, _, balances, pendings) = load_data();
+  var (stakes, _, _, _, _) = unpack_balances(balances);
+  var [_, pending_withdrawals] = pendings;
+
+  return (stakes.get_shares(id), pending_withdrawals.get_shares(id));
+}
+
+int get_pending_deposit(int wc, int addr) method_id {
+  var (_, _, _, _, pendings) = load_data();
+  var [pending_deposits, _] = pendings;
+  slice id = begin_cell()
+    .store_uint(4, 3)
+    .store_int(wc, 8)
+    .store_uint(addr, 256)
+    .end_cell().begin_parse();
+  return pending_deposits.get_grams(id);
+}
+
+(int, int, int) get_user_coins(int wc, int addr) method_id {
+  var (_, _, _, balances, _) = load_data();
+  var (_, total_shares, total_staked, _, _) = unpack_balances(balances);
+  var (shares, pw) = get_user_shares(wc, addr);
+  var (coins, pwc) = (0, 0);
+  if (shares > 0) {
+    coins = muldiv(shares, total_staked, total_shares);
+    pwc = muldiv(pw, total_staked, total_shares);
+  }
+  slice id = begin_cell()
+    .store_uint(4, 3)
+    .store_int(wc, 8)
+    .store_uint(addr, 256)
+    .end_cell().begin_parse();
+  return (coins, pwc, get_pending_deposit(wc, addr));
+}
+
+(int, int) get_pendings_null?() method_id {
+  var (_, _, _, _, pendings) = load_data();
+  var [pending_deposits, pending_withdrawals] = pendings;
+  return (pending_deposits.null?(), pending_withdrawals.null?());
+}
+
+(int, int) get_proxy_address() method_id {
+  return parse_std_addr(elector_address());
+}

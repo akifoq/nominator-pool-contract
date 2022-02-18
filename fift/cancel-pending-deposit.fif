@@ -1,0 +1,8 @@
+"TonUtil.fif" include
+"text-utils.fif" include
+
+{ ."fift -s cancel-pending-deposit.fif" cr 1 halt } : usage
+$# 0 <> ' usage if
+
+<b 0x731f8168 32 u,
+b> <s s>$ type cr

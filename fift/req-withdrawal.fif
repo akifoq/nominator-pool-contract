@@ -1,0 +1,13 @@
+"TonUtil.fif" include
+"text-utils.fif" include
+
+{ ."fift -s req-withdrawal <shares>" cr 1 halt } : usage
+$# 1 <> ' usage if
+
+// b x -- b'  ( serializes a Shares amount )
+{ -1 { 1+ 2dup 8 * ufits } until
+  rot over 5 u, -rot 8 * u, } : Share,
+
+<b 0x35de5f9e 32 u,
+   $1 $>GR 256 * Share,
+b> <s s>$ type cr

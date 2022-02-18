@@ -1,0 +1,320 @@
+;; safer version of staking pool
+;; author: @akifoq
+
+;; switches from elections to stake_held
+_ ~update_state(state) impure inline_ref {
+  var [tag, utime_since, msgs_sent, msgs_recv] = state;
+  if (tag != state_tag::elections()) {
+    return (state, ());
+  }
+  (_, _, int elections_end_before, _) = elect_timings();
+  if (now() < utime_since - elections_end_before) {
+    return (state, ());
+  }
+  if (msgs_recv < msgs_sent) {
+    ;; wait for elector response
+    return (state, ());
+  }
+  state = [state_tag::stake_held(), utime_since, null(), null()];
+  return (state, ());
+}
+
+() request_stake(int my_balance, int authorized?) impure inline_ref {
+  var (_1, state, _3, balances, _5) = load_data();
+  state~update_state(); ;; try switch from elections
+  var [tag, utime_since, _, _] = state;
+  throw_unless(32, my_balance > (1 << 33)); ;; at least 8.5 coins
+  if (authorized?) {
+    throw_unless(33, tag == state_tag::stake_held());
+    state = [state_tag::stake_requested(), utime_since, null(), null()];
+  }
+  else {
+    throw_unless(30, (tag == state_tag::wait_for_unfreeze()) |
+                     (tag == state_tag::stake_held()));
+    throw_unless(31, stake_surely_unfrozen?(utime_since));
+    state = [state_tag::finally_requested(), null(), null(), null()];
+    accept_message();
+  }
+  balances~request_stake_recover();
+  save_data(_1, state, _3, balances, _5);
+}
+
+() collect_deposits(int n) impure inline_ref {
+  var (_1, state, _3, balances, pendings) = load_data();
+  var [tag, _, _, _] = state;
+  throw_unless(33, tag == state_tag::in_limbo());
+  var [pending_deposits, _pw] = pendings;
+  throw_if(49, pending_deposits.null?()); ;; don't waste pool balance on doing nothing
+  var (stakes, total_shares, total_staked, _d, _e) = unpack_balances(balances);
+  do {
+    var (id, cs, found?) = pending_deposits~dict::delete_get_max(267);
+    if (found?) {
+      int pending = cs~load_grams();
+      (stakes, total_shares, total_staked)~add_deposit(id, pending);
+    }
+    n = (n & found?) - 1;
+  } until (n <= 0);
+  balances = pack_balances(stakes, total_shares, total_staked, _d, _e);
+  pendings = [pending_deposits, _pw];
+  save_data(_1, state, _3, balances, pendings);
+}
+
+() process_withdrawals(int n) impure inline_ref {
+  var (_1, state, _3, balances, pendings) = load_data();
+  var [tag, _, _, _] = state;
+  throw_unless(33, tag == state_tag::in_limbo());
+  var [_pd, pending_withdrawals] = pendings;
+  throw_if(49, pending_withdrawals.null?()); ;; don't waste pool balance on doing nothing
+  var (stakes, total_shares, total_staked, _d, _e) = unpack_balances(balances);
+  do {
+    var (id, cs, found?) = pending_withdrawals~dict::delete_get_max(267);
+    if (found?) {
+      int pending = cs~load_shares();
+      int coins = (stakes, total_shares, total_staked)~withdraw(id, pending);
+      ;; it's ok to use same query_id for withdrawals on different addresses
+      send_message_back(id, resp::withdraw(), cur_lt(), coins, 1);
+    }
+    n = (n & found?) - 1;
+  } until (n <= 0);
+  balances = pack_balances(stakes, total_shares, total_staked, _d, _e);
+  pendings = [_pd, pending_withdrawals];
+  save_data(_1, state, _3, balances, pendings);
+}
+
+() recv_external(int my_balance, int, cell, slice) impure {
+  request_stake(my_balance, false);
+}
+
+() process_confirmation(op, query_id, msg_value) impure inline_ref {
+  var (_1, state, _3, balances, _5) = load_data();
+  ;; tag is always state_tag::elections() here
+  var [tag, utime_since, msgs_sent, msgs_recv] = state;
+  var (_a, _b, _c, _d, total_sent) = unpack_balances(balances);
+
+  msgs_recv += 1;
+  total_sent -= msg_value;
+
+  balances = pack_balances(_a, _b, _c, _d, total_sent);
+  state = [tag, utime_since, msgs_sent, msgs_recv];
+  save_data(_1, state, _3, balances, _5);
+}
+
+() change_settings(proposed) impure inline_ref {
+  var (_1, state, settings, _4, _5) = load_data();
+  var [tag, _, _, _] = state;
+  throw_unless(34, tag == state_tag::in_limbo());
+  var [validator_fee, min_val_balance] = settings;
+  var [proposed_fee, proposed_min] = proposed;
+  throw_if(35, proposed_min < min_val_balance);
+  settings = proposed;
+  save_data(_1, state, settings, _4, _5);
+}
+
+() v_withdraw(addr, amount) impure inline_ref {
+  var (_1, state, _3, balances, _5) = load_data();
+  var [tag, _, _, _] = state;
+  throw_unless(36, tag == state_tag::in_limbo());
+  var (_a, _b, _c, validator_balance, _e) = unpack_balances(balances);
+  validator_balance -= amount;
+  send_message(addr, amount, 0);
+  balances = pack_balances(_a, _b, _c, validator_balance, _e);
+  save_data(_1, state, _3, balances, _5);
+}
+
+() v_deposit(amount) impure inline_ref {
+  var (_1, state, _3, balances, _5) = load_data();
+  var [tag, _, _, _] = state;
+  throw_unless(36, tag == state_tag::in_limbo());
+  var (_a, _b, _c, validator_balance, _e) = unpack_balances(balances);
+  validator_balance += amount;
+  balances = pack_balances(_a, _b, _c, validator_balance, _e);
+  save_data(_1, state, _3, balances, _5);
+}
+
+() begin_elections() impure inline_ref {
+  var (_1, state, settings, balances, pendings) = load_data();
+
+  var (_, _, _, validator_balance, _) = unpack_balances(balances);
+  var [_, min_val_balance] = settings;
+  throw_unless(42, validator_balance >= min_val_balance);
+
+  var [tag, _, _, _] = state;
+  throw_unless(38, tag == state_tag::in_limbo());
+
+  (_, int utime_since) = current_round(); ;; utime_since of next round is utime_until of current
+  (_, int elections_start_before, int elections_end_before, _) = elect_timings();
+  int lt = utime_since - elections_start_before;
+  int rt = utime_since - elections_end_before;
+  int t = now();
+  throw_unless(39, (lt <= t) & (t < rt)); ;; elections are now
+
+  var [pending_deposits, pending_withdrawals] = pendings;
+  throw_unless(40, pending_withdrawals.null?()); ;; process withdrawals first
+  throw_unless(41, pending_deposits.null?()); ;; also collect deposits
+
+  state = [state_tag::elections(), utime_since, 0, 0];
+  save_data(_1, state, settings, balances, pendings);
+}
+
+() partipate(stake, body) impure inline_ref {
+  var (_1, state, _3, balances, _5) = load_data();
+  state~update_state(); ;; try switch from elections
+  var [tag, utime_since, msgs_sent, msgs_recv] = state;
+  throw_unless(40, tag == state_tag::elections());
+  throw_unless(41, msgs_sent < settings::max_msgs_sent());
+  var (_a, _b, total_staked, validator_balance, total_sent) = unpack_balances(balances);
+  total_sent += stake;
+  throw_unless(43, total_sent <= total_staked + validator_balance);
+  throw_if(44, stake < (1 << 34)); ;; too small stake (we need coins to process response)
+  int query_id = cur_lt();
+  send_stake_to_elector(stake, 0, query_id, body);
+
+  state = [tag, utime_since, msgs_sent + 1, msgs_recv];
+  balances = pack_balances(_a, _b, total_staked, validator_balance, total_sent);
+  save_data(_1, state, _3, balances, _5);
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_cell, slice in_msg) impure {
+  var cs = in_msg_cell.begin_parse();
+  var flags = cs~load_uint(4);
+  var s_addr = cs~load_msg_addr();
+
+  if slice_data_equal?(s_addr, elector_address()) {
+    ;; response from elector or bounced request
+    ;; only partipication query may be bounced
+    ;; it's the only way to get op = 0xffffffff, so we can avoid checking flags
+
+    int op = in_msg~load_uint(32);
+    if (op == 0xffffffff) {
+      in_msg~skip_bits(32);
+    }
+    int query_id = in_msg~load_uint(64);
+    if (op == 0xf96f7324) | (op == 0xfffffffe) {
+      ;; stake recover or we lost all of the stake
+      return process_stake_recover(msg_value);
+    }
+    if (op == 0xf374484c) | (op == 0xee6f454c) | (op == 0xffffffff) {
+      ;; confirmation or stake returned with an error
+      return process_confirmation(op, query_id, msg_value);
+    }
+
+    ;; it's impossible to reach here
+    ;; unless the elector code is changed (in such scenario we can't guarantee anything)
+    return ();
+  }
+
+  if (flags & 1) {
+    ;; ignore all other bounced messages
+    return ();
+  }
+
+  int op = in_msg~load_uint(32);
+  int query_id = 0;
+  if (op) {
+    query_id = in_msg~load_uint(64);
+  }
+  else {
+    ;; text message (query_id is 0 by default)
+    in_msg = parse_hex_msg(in_msg);
+    op = in_msg~load_uint(32);
+  }
+
+  if (op == op::collect_deposits()) {
+    int n = in_msg~load_uint(8) + 1;
+    collect_deposits(n);
+    return send_message_back(s_addr, resp::ok(), query_id, msg_value, 2);
+  }
+
+  if (op == op::process_withdrawals()) {
+    int n = in_msg~load_uint(7) + 1;
+    process_withdrawals(n);
+    return send_message_back(s_addr, resp::ok(), query_id, msg_value, 2);
+  }
+
+  var ds = get_data().begin_parse();
+  slice controller = ds~load_msg_addr();
+  if slice_data_equal?(s_addr, controller) {
+    ;; controller requests
+    if (op == op::change_controller()) {
+      var addr = in_msg~load_msg_addr();
+      set_data(begin_cell()
+        .store_slice(addr)
+        .store_slice(ds)
+      .end_cell());
+      send_message_back(s_addr, resp::ok(), query_id, 0, 64);
+      throw(0);
+    }
+    if (op == op::begin_elections()) {
+      begin_elections();
+      send_message_back(s_addr, resp::ok(), query_id, 0, 64);
+      throw(0);
+    }
+    if (op == op::partipate()) {
+      int stake = in_msg~load_grams();
+      cell body = in_msg~load_ref();
+      partipate(stake, body.begin_parse());
+      send_message_back(s_addr, resp::ok(), query_id, 0, 64);
+      throw(0);
+    }
+    if (op == op::request_stake()) {
+      request_stake(my_balance - msg_value, true);
+      send_message_back(s_addr, resp::ok(), query_id, 0, 64);
+      throw(0);
+    }
+    if (op == op::change_settings()) {
+      var proposed = in_msg~load_settings();
+      change_settings(proposed);
+      send_message_back(s_addr, resp::ok(), query_id, 0, 64);
+      throw(0);
+    }
+    if (op == op::v_withdraw()) {
+      var addr = in_msg~load_msg_addr();
+      int amount = in_msg~load_grams();
+      v_withdraw(addr, amount);
+      send_message_back(s_addr, resp::ok(), query_id, 0, 64);
+      throw(0);
+    }
+    if (op == op::v_deposit()) {
+      int amount = in_msg~load_grams();
+      throw_if(46, msg_value < amount + (1 << 30));
+      v_deposit(amount);
+      raw_reserve(amount, 4);
+      send_message_back(s_addr, resp::ok(), query_id, 0, 128);
+      throw(0);
+    }
+  }
+
+  if (op == op::recv_external()) {
+    recv_external(my_balance, null(), null(), null());
+    return ();
+  }
+
+  if (op == op::deposit()) {
+    int amount = in_msg~load_grams();
+    throw_if(46, msg_value < amount + settings::deposit_margin());
+    slice id = check_addr(s_addr); ;; deposits only from std addresses without anycast are accepted
+    int fee = request_deposit(id, amount);
+    raw_reserve(amount + fee, 4);
+    return send_message_back(s_addr, resp::ok(), query_id, 0, 128);
+  }
+  if (op == op::withdraw()) {
+    int amount = in_msg~load_shares();
+    slice id = check_addr(s_addr);
+    int coins = request_withdraw(id, amount);
+    int mode = 64;
+    if (coins < 0) {
+      raw_reserve(- coins, 4); ;; debit fee
+      mode = 128;
+      coins = 0;
+    }
+    return send_message_back(s_addr, resp::ok(), query_id, coins, mode);
+  }
+  if (op == op::cancel_deposit()) {
+    slice id = check_addr(s_addr);
+    int coins = cancel_deposit(id);
+    return send_message_back(s_addr, resp::ok(), query_id, coins, 64);
+  }
+
+  ;; unkown op
+  throw(100);
+}

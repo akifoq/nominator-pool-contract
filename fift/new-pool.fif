@@ -1,0 +1,42 @@
+"Asm+.fif" include
+"TonUtil.fif" include
+
+"setup.fif" include
+
+// b x -- b'  ( serializes a Shares amount )
+{ -1 { 1+ 2dup 8 * ufits } until
+  rot over 5 u, -rot 8 * u, } : Share,
+
+<b dictnew dict, // stakes
+   0 Share, // total_shares
+   0 Gram, // total_staked
+   validator_balance Gram,
+   0 Gram, // total_sent
+b> constant balances
+
+<b b{00} s,
+b> <s constant pendings
+
+<b 0 4 u,
+b> <s constant state // in_limbo
+
+<b validator_fee 16 u,
+   min_val_balance Gram,
+b> <s constant settings
+
+<b controller Addr,
+   state s,
+   settings s,
+   balances ref,
+   pendings s,
+b> constant storage
+
+<{ SETCP0 ACCEPT
+   "../func/auto/pool-code.fif" include PUSHREF SETCODE
+}>c constant code
+
+pool-wc constant wc
+
+"../data/pool" constant file-base
+
+"create-contract.fif" include

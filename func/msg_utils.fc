@@ -1,0 +1,35 @@
+() send_message_back(addr, ans_tag, query_id, grams, mode) impure inline_ref {
+  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 011000
+  var msg = begin_cell()
+    .store_uint(0x18, 6)
+    .store_slice(addr)
+    .store_grams(grams)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_uint(ans_tag, 32)
+    .store_uint(query_id, 64);
+  send_raw_message(msg.end_cell(), mode);
+}
+
+() send_stake_to_elector(grams, mode, query_id, body) impure inline_ref {
+  var msg = begin_cell()
+    .store_uint(0x18, 6)
+    .store_slice(elector_address())
+    .store_grams(grams)
+    .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1) ;; body in separate cell
+    .store_ref(begin_cell()
+      .store_uint(0x4e73744b, 32)
+      .store_uint(query_id, 64)
+      .store_slice(body)
+      .end_cell()
+    );
+  send_raw_message(msg.end_cell(), mode);
+}
+
+() send_message(addr, grams, mode) impure inline_ref {
+  var msg = begin_cell()
+    .store_uint(0x18, 6)
+    .store_slice(addr)
+    .store_grams(grams)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1);
+  send_raw_message(msg.end_cell(), mode);
+}

@@ -1,0 +1,22 @@
+slice elector_address()
+  asm "<b -1 0x771fc313bc3d7af91dd69110a3cbec63cd6a54e23afa453fe9c977b68d8e1983 Addr, b> <s PUSHSLICE";
+
+;; validators_elected_for
+;; elections_start_before
+;; elections_end_before
+;; stake_held_for
+(int, int, int, int) elect_timings() inline_ref {
+  var cs = config_param(15).begin_parse();
+  return (cs~load_uint(32), cs~load_uint(32),
+          cs~load_uint(32), cs~load_uint(32));
+}
+
+;; utime_since, utime_until
+(int, int) current_round() inline_ref {
+  var cs = config_param(34).begin_parse();
+  int tag = cs~load_uint(8);
+  if (tag != 0x11) & (tag != 0x12) {
+    return (0, 0);
+  }
+  return (cs~load_uint(32), cs~load_uint(32));
+}
