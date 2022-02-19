@@ -72,7 +72,7 @@ _ ~update_state(state) impure inline_ref {
       int pending = cs~load_shares();
       int coins = (stakes, total_shares, total_staked)~withdraw(id, pending);
       ;; it's ok to use same query_id for withdrawals on different addresses
-      send_message_back(id, resp::withdraw(), cur_lt(), coins, 1);
+      send_message_back(id, resp::withdraw(), cur_lt(), coins, 2);
     }
     n = (n & found?) - 1;
   } until (n <= 0);
