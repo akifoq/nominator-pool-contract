@@ -1,5 +1,5 @@
 slice elector_address()
-  asm "<b -1 0x771fc313bc3d7af91dd69110a3cbec63cd6a54e23afa453fe9c977b68d8e1983 Addr, b> <s PUSHSLICE";
+  asm "<b @proxy Addr, b> <s PUSHSLICE";
 
 ;; validators_elected_for
 ;; elections_start_before

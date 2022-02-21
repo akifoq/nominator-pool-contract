@@ -31,6 +31,8 @@ b> <s constant settings
    pendings s,
 b> constant storage
 
+"../data/proxy.addr" load-address 2=: @proxy
+
 <{ SETCP0 ACCEPT
    "../func/auto/pool-code.fif" include PUSHREF SETCODE
 }>c constant code
