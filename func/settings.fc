@@ -1,7 +1,7 @@
 ;; immutable settings are listed here
 int settings::max_msgs_sent() asm "100 PUSHINT";
-int settings::min_deposit() asm "10 Gram* PUSHINT";
+int settings::min_deposit() asm "10.0 Gram*/ PUSHINT";
 int settings::deposit_margin() asm "0.5 Gram*/ PUSHINT";
-int settings::withdrawal_fee() asm "0.1 Gram*/ PUSHINT";
-int settings::deposit_fee() asm "0.1 Gram*/ PUSHINT";
-int settings::unfreeze_delay() asm "1000 PUSHINT";
+int settings::withdrawal_fee() asm "0.2 Gram*/ PUSHINT";
+int settings::deposit_fee() asm "0.2 Gram*/ PUSHINT";
+int settings::unfreeze_delay() asm "3600 24 * 2 * PUSHINT"; ;; 2 days
